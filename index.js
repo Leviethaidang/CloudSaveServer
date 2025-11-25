@@ -1,0 +1,122 @@
+const express = require("express");
+const bodyParser = require("body-parser");
+const { Pool } = require("pg");
+const cors = require("cors");
+
+const app = express();
+const PORT = process.env.PORT || 4000;
+
+// ===== Middleware =====
+app.use(cors());
+app.use(bodyParser.json());
+
+// ===== Kết nối PostgreSQL =====
+const pool = new Pool({
+  connectionString: process.env.DATABASE_URL,
+  ssl: { rejectUnauthorized: false }
+});
+
+// Helper log lỗi DB
+function logDbError(context, err) {
+  console.error(`[DB ERROR] ${context}:`, err.message);
+}
+
+// ===== Route test =====
+app.get("/", (req, res) => {
+  res.json({ ok: true, service: "CloudSaveServer" });
+});
+
+// ====== POST /api/cloud-save/sync ======
+// Body: { email, username, saveJson }
+app.post("/api/cloud-save/sync", async (req, res) => {
+  const { email, username, saveJson } = req.body || {};
+
+  if (!email || !username || !saveJson) {
+    return res.status(400).json({
+      success: false,
+      message: "Missing email, username or saveJson",
+    });
+  }
+
+  try {
+    const query = `
+      INSERT INTO cloud_saves (email, username, save_json, updated_at)
+      VALUES ($1, $2, $3, NOW())
+      ON CONFLICT (email, username)
+      DO UPDATE SET
+        save_json = EXCLUDED.save_json,
+        updated_at = NOW()
+      RETURNING id, updated_at;
+    `;
+
+    const values = [email, username, saveJson];
+    const result = await pool.query(query, values);
+
+    const row = result.rows[0];
+
+    return res.json({
+      success: true,
+      id: row.id,
+      email,
+      username,
+      updatedAt: row.updated_at,
+    });
+  } catch (err) {
+    logDbError("sync", err);
+    return res.status(500).json({
+      success: false,
+      message: "Internal server error while syncing save",
+    });
+  }
+});
+
+// ====== GET /api/cloud-save/fetch?email=...&username=... ======
+app.get("/api/cloud-save/fetch", async (req, res) => {
+  const { email, username } = req.query;
+
+  if (!email || !username) {
+    return res.status(400).json({
+      success: false,
+      message: "Missing email or username",
+    });
+  }
+
+  try {
+    const query = `
+      SELECT email, username, save_json, updated_at
+      FROM cloud_saves
+      WHERE email = $1 AND username = $2
+      LIMIT 1;
+    `;
+    const values = [email, username];
+    const result = await pool.query(query, values);
+
+    if (result.rows.length === 0) {
+      return res.status(404).json({
+        success: false,
+        message: "Save not found",
+      });
+    }
+
+    const row = result.rows[0];
+
+    return res.json({
+      success: true,
+      email: row.email,
+      username: row.username,
+      saveJson: row.save_json,
+      updatedAt: row.updated_at,
+    });
+  } catch (err) {
+    logDbError("fetch", err);
+    return res.status(500).json({
+      success: false,
+      message: "Internal server error while fetching save",
+    });
+  }
+});
+
+// ===== Khởi động server =====
+app.listen(PORT, () => {
+  console.log(`CloudSaveServer is running on port ${PORT}`);
+});
