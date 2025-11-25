@@ -115,6 +115,46 @@ app.get("/api/cloud-save/fetch", async (req, res) => {
     });
   }
 });
+// ====== GET /api/cloud-save/list-by-email?email=... ======
+app.get("/api/cloud-save/list-by-email", async (req, res) => {
+  const { email } = req.query;
+
+  if (!email) {
+    return res.status(400).json({
+      success: false,
+      message: "Missing email",
+    });
+  }
+
+  try {
+    const query = `
+      SELECT username, updated_at
+      FROM cloud_saves
+      WHERE email = $1
+      ORDER BY updated_at DESC;
+    `;
+
+    const values = [email];
+    const result = await pool.query(query, values);
+
+    const entries = result.rows.map((row) => ({
+      username: row.username,
+      updatedAt: row.updated_at,
+    }));
+
+    return res.json({
+      success: true,
+      email,
+      entries,
+    });
+  } catch (err) {
+    logDbError("list-by-email", err);
+    return res.status(500).json({
+      success: false,
+      message: "Internal server error while listing saves",
+    });
+  }
+});
 
 // ===== Khởi động server =====
 app.listen(PORT, () => {
