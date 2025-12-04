@@ -9,7 +9,7 @@ const PORT = process.env.PORT || 4000;
 
 // ===== Middleware =====
 app.use(cors());
-app.use(bodyParser.json());
+app.use(bodyParser.json({ limit: "10mb" }));
 
 app.use(express.static("public"));
 // ===== Kết nối PostgreSQL =====
